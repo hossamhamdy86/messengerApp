@@ -18,6 +18,8 @@ import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.bumptech.glide.Glide;
@@ -36,6 +38,7 @@ import com.google.firebase.storage.StorageReference;
 import com.google.firebase.storage.UploadTask;
 import com.google.protobuf.Empty;
 import com.squareup.picasso.Picasso;
+import com.theartofdev.edmodo.cropper.CropImage;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -44,53 +47,61 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import de.hdodenhof.circleimageview.CircleImageView;
+
 public class ProfileActivity extends AppCompatActivity {
 
+    TextView user_name ;
     Toolbar toolbar_profileActivity;
     private static final int PERMISSION_CODE = 100;
     private static final int IMAGE_PICK_CODE = 101;
-    private ImageView user_image;
-    private FirebaseStorage storageInstance = FirebaseStorage.getInstance();
-    private StorageReference currentUserStorageRef = storageInstance.getReference()
-            .child(FirebaseAuth.getInstance().getCurrentUser().getUid());
-    private FirebaseFirestore firestoreInstant = FirebaseFirestore.getInstance();
-    private DocumentReference currentUserDocRef = firestoreInstant.collection("Users").document(FirebaseAuth.getInstance().getCurrentUser().getUid());
+    private CircleImageView user_image;
+    private StorageReference currentUserStorageRef ;
+    private DocumentReference currentUserDocRef ;
+    ProgressBar progressBar_profile;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_profile);
         toolbar_profileActivity = findViewById(R.id.toolbar_profileActivity);
+        user_name = findViewById(R.id.user_name);
         user_image = findViewById(R.id.user_image);
-        final ImageView imageView = findViewById(R.id.user_image);
+        progressBar_profile = findViewById(R.id.progressBar_profile);
+        currentUserStorageRef = FirebaseStorage.getInstance().getReference().child(FirebaseAuth.getInstance().getCurrentUser().getUid());
+        currentUserDocRef = FirebaseFirestore.getInstance().collection("Users").document(FirebaseAuth.getInstance().getCurrentUser().getUid());
         setSupportActionBar(toolbar_profileActivity);
         getSupportActionBar().setHomeButtonEnabled(true);
         getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         getSupportActionBar().setTitle("Me");
-        currentUserDocRef.get().addOnCompleteListener(new OnCompleteListener<DocumentSnapshot>() {
+        progressBar_profile.setVisibility(View.VISIBLE);
+        currentUserDocRef.get().addOnSuccessListener(new OnSuccessListener<DocumentSnapshot>() {
             @Override
-            public void onComplete(@NonNull Task<DocumentSnapshot> task) {
-            if (task.isSuccessful()){
-                DocumentSnapshot documentSnapshot = task.getResult();
-                Uri namePic = Uri.parse(documentSnapshot.getString("picture"));
-                Toast.makeText(ProfileActivity.this, namePic.toString(), Toast.LENGTH_SHORT).show();
-                Glide.with(ProfileActivity.this).load(namePic).into(imageView);
-                     }
-            }
-        });
-        user_image.setOnClickListener(new View.OnClickListener() {
-            @RequiresApi(api = Build.VERSION_CODES.M)
-            @Override
-            public void onClick(View v) {
-                if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)!= PackageManager.PERMISSION_GRANTED){
-                    String[] Permissions = {Manifest.permission.READ_EXTERNAL_STORAGE};
-                    requestPermissions(Permissions, PERMISSION_CODE);
+            public void onSuccess(DocumentSnapshot documentSnapshot) {
+                user_name.setText(documentSnapshot.getString("name"));
+                String image = documentSnapshot.getString("picture");
+                if (image != null && !image.isEmpty()) {
+                    Picasso.with(ProfileActivity.this).load(image).into(user_image);
+                    progressBar_profile.setVisibility(View.INVISIBLE);
                 }else {
-                    selectimage();
+                    user_image.setImageResource(R.drawable.ic_account_circle);
+                    progressBar_profile.setVisibility(View.INVISIBLE);
                 }
             }
         });
+
     }
+
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    public void selectImage(View view) {
+        if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)!= PackageManager.PERMISSION_GRANTED){
+            String[] Permissions = {Manifest.permission.READ_EXTERNAL_STORAGE};
+            requestPermissions(Permissions, PERMISSION_CODE);
+        }else {
+            selectimage();
+        }
+    }
+
     private void selectimage() {
         Intent intent = new Intent(Intent.ACTION_PICK);
         intent.setType("image/*");
@@ -100,7 +111,7 @@ public class ProfileActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         if (item.getItemId() == android.R.id.home){
-            finish();
+            onBackPressed();
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -120,22 +131,53 @@ public class ProfileActivity extends AppCompatActivity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        if (resultCode == RESULT_OK && requestCode == IMAGE_PICK_CODE){
-            Uri selectedImagePath = data.getData();
-            user_image.setImageURI(selectedImagePath);
-            uploadProfileImage(selectedImagePath);
-        }
         super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode == RESULT_OK && requestCode == IMAGE_PICK_CODE){
+            Uri imageUri = data.getData();
+            CropImage.activity(imageUri)
+                    .setAspectRatio(1,1)
+                    .start(this);
+        }
+        if (requestCode == CropImage.CROP_IMAGE_ACTIVITY_REQUEST_CODE) {
+            CropImage.ActivityResult result = CropImage.getActivityResult(data);
+            if (resultCode == RESULT_OK) {
+                Uri selectedImagePath = result.getUri();
+                user_image.setImageURI(selectedImagePath);
+                uploadProfileImage(selectedImagePath);
+            } else if (resultCode == CropImage.CROP_IMAGE_ACTIVITY_RESULT_ERROR_CODE) {
+                Exception error = result.getError();
+            }
+        }
     }
 
     private void uploadProfileImage(Uri selectedImageByte) {
+        progressBar_profile.setVisibility(View.VISIBLE);
         final StorageReference reference = currentUserStorageRef.child("profilePicture").child(selectedImageByte.getLastPathSegment());
-        reference.putFile(selectedImageByte).addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
+        reference.putFile(selectedImageByte).addOnCompleteListener(new OnCompleteListener<UploadTask.TaskSnapshot>() {
             @Override
-            public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
-                Uri imagePath = taskSnapshot.getUploadSessionUri();
-                currentUserDocRef.update("picture",imagePath.toString());
+            public void onComplete(@NonNull Task<UploadTask.TaskSnapshot> task) {
+                reference.getDownloadUrl().addOnSuccessListener(new OnSuccessListener<Uri>() {
+                    @Override
+                    public void onSuccess(Uri uri) {
+                        String DownLoad_Uri = uri.toString();
+                        currentUserDocRef.update("picture",DownLoad_Uri);
+                        progressBar_profile.setVisibility(View.INVISIBLE);
+                    }
+                });
             }
         });
+    }
+
+    public void Sign_out () {
+
+    }
+
+    public void logout(View view) {
+        FirebaseAuth mAuth = FirebaseAuth.getInstance();
+        mAuth.signOut();
+        Intent intent = new Intent(ProfileActivity.this,SignInActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
     }
 }

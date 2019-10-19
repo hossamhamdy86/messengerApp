@@ -16,10 +16,17 @@ import android.widget.ImageView;
 import com.example.messengerapp.fragments.ChatFragment;
 import com.example.messengerapp.fragments.MoreFragment;
 import com.example.messengerapp.fragments.PeopleFragment;
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.material.bottomnavigation.BottomNavigationItemView;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.navigation.NavigationView;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.DocumentReference;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.squareup.picasso.Picasso;
 
 import de.hdodenhof.circleimageview.CircleImageView;
 
@@ -32,16 +39,18 @@ public class MainActivity extends AppCompatActivity  {
     FragmentTransaction fragmentTransaction;
     BottomNavigationView bottomNavigationView;
     Toolbar toolbar_main;
-    ImageView profile_image;
+    CircleImageView profile_image;
+    private DocumentReference currentUserDocRef ;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         bottomNavigationView = findViewById(R.id.bottomNavigationView);
+        toolbar_main         = findViewById(R.id.toolbar_main);
+        profile_image        = findViewById(R.id.profile_image);
+        currentUserDocRef    = FirebaseFirestore.getInstance().collection("Users").document(FirebaseAuth.getInstance().getCurrentUser().getUid());
         setFragment(mChatFragment);
-        toolbar_main = findViewById(R.id.toolbar_main);
-        profile_image =(ImageView) findViewById(R.id.profile_image);
         bottomNavigationView.setOnNavigationItemSelectedListener(new BottomNavigationView.OnNavigationItemSelectedListener() {
             @Override
             public boolean onNavigationItemSelected(@NonNull MenuItem menuItem) {
@@ -63,6 +72,18 @@ public class MainActivity extends AppCompatActivity  {
                 }
             }
         });
+
+        currentUserDocRef.get().addOnSuccessListener(new OnSuccessListener<DocumentSnapshot>() {
+            @Override
+            public void onSuccess(DocumentSnapshot documentSnapshot) {
+                String image_uri = documentSnapshot.getString("picture");
+                if (image_uri != null && !image_uri.isEmpty()) {
+                    Picasso.with(MainActivity.this).load(image_uri).into(profile_image);
+                }else {
+                    profile_image.setImageResource(R.drawable.ic_account_circle);
+                }
+            }
+        });
         profile_image.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -72,18 +93,20 @@ public class MainActivity extends AppCompatActivity  {
         });
     }
 
-    public void Sign_out(View view) {
-        mAuth.signOut();
-        Intent intent = new Intent(MainActivity.this,SignInActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
+    @Override
+    protected void onStart() {
+        super.onStart();
+        FirebaseUser currentUser = mAuth.getCurrentUser();
+        if (currentUser == null){
+            Intent intent = new Intent(MainActivity.this,SignInActivity.class);
+            startActivity(intent);
+            finish();
+        }
     }
 
     private void setFragment(Fragment fragment) {
         fragmentTransaction = getSupportFragmentManager().beginTransaction();
         fragmentTransaction.replace(R.id.coordinatorLayout,fragment).addToBackStack(null).commit();
     }
-
 
 }
